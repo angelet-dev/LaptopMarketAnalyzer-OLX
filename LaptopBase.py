@@ -57,6 +57,7 @@ class LaptopBase:
             return pd.read_csv(self.path)
 
         except Exception as e:
+            logging.error(f"Unexpected error while loading csv for LaptopBase ({type(e).__name__}): {e}")
             return pd.DataFrame()
 
     def save(self):
@@ -100,7 +101,7 @@ class LaptopBase:
             self.df = new_bd
             self.save()
 
-            logging.info(f"База даних успішно оновлена.")
+            logging.info("База даних успішно оновлена.")
             
         except Exception as e:
             logging.error(f"Помилка оновлення бази: {e}",exc_info=True)
@@ -115,7 +116,7 @@ class LaptopBase:
             
             max_idx = len(self.df) - 1
 
-            curr = max(0,min(index,max_idx))
+            curr = max(0,min(index, max_idx))
 
             while 0 <= curr <= max_idx:
                 if not self.df.iloc[curr].get('spam',True):
@@ -124,19 +125,19 @@ class LaptopBase:
 
             for i in range(max_idx)[::direction]:
                 if not self.df.iloc[i].get('spam',False):
-                    return i
-                   
+                    return i      
             return 0
             
-        except:
+        except Exception as e:
+            logging.error(f"Unexcepted error while getting valid index ({type(e).__name__}): {e}")
             return 0
         
 
     def add_to_spam(self, index: int):
         try:
             self.df.loc[index,'spam'] = True
-        except:
-            pass
+        except Exception as e:
+            logging.error(f"Unexpected error while marking item as spam ({type(e).__name__}): {e}")
 
     def is_new(self, index: int) -> bool:
         if 'is_new' not in self.df:
@@ -149,4 +150,3 @@ class LaptopBase:
             return None
             
         self.df.loc[index,'is_new'] = False
-
