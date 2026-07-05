@@ -36,7 +36,7 @@ To provide the best user experience, the bot features a clean interface and deta
 
 1.  **Clone the repository:**
     ```bash
-    git clone [https://github.com/DevDmytroTym/LaptopMarketAnalyzer-OLX.git](https://github.com/DevDmytroTym/LaptopMarketAnalyzer-OLX.git)
+    git clone [https://github.com/angelet-dev/LaptopMarketAnalyzer-OLX.git](https://github.com/angelet-dev/LaptopMarketAnalyzer-OLX.git)
     cd LaptopMarketAnalyzer-OLX
     ```
 
