@@ -5,6 +5,7 @@ import pandas as pd
 import re
 import random
 import logging
+from urllib.parse import quote
 from fake_headers import Headers
 from rapidfuzz import process, fuzz
 from concurrent.futures import ThreadPoolExecutor
@@ -26,63 +27,70 @@ target_models = list(map(lambda x: x.lower(),config.data['models']))
 black_list = list(map(lambda x: x.lower(), config.data['blacklist']))
 headers = [str(Headers()) for x in range(15)]
 
-#функція для отримання html сторінки з оголошенням 
+
+def get_header(headers: list) -> dict: 
+    """
+    Selects a random User-Agent from the list and returns it as a dictionary.
+    """
+    return {'User-Agent': random.choice(headers)}
+
+
 def fetch_html(url: str, headers: list) -> tuple[str, str]:
 
     """
-    Виконує безпечний HTTP-запит до сайту з імітацією користувача.
+        Performs an HTTP request to the site with a user simulation.
 
     Args:
-        url (str): Посилання на сторінку.
-        headers (list): Список User-Agent заголовків.
+        url (str): Link of page.
+        headers (list): List of User-Agent headers.
 
     Returns:
-        tuple[str, str]: Повертає (html_text, actual_url). 
-                         Якщо помилка - повертає (None, None).
+        tuple[str, str]: Return (html_text, actual_url). 
+                         If error,  return (None, None).
     """
 
     try:         
-        header = {'User-Agents': random.choice(headers)} 
+        header = get_header(headers)
         time.sleep(random.randint(1,5))
 
         response = requests.get(url, headers = header, timeout=10)
 
         if response.status_code == 403:
-            logging.warning(f"Доступ заборонено (403) для {url}. Можливо, IP заблоковано.")
+            logging.warning(f"Access forbidden (403) for {url}. Maybe IP is blocked.")
             return None, None
         elif response.status_code == 429:
-            logging.warning(f"Занадто багато запитів (429). Треба збільшити паузу!")
+            logging.warning("Too many requests (429). Need increased pause!")
             return None, None
         
         response.raise_for_status()
         return response.text,response.url
 
     except requests.exceptions.HTTPError as e:
-        logging.error(f"HTTP помилка для {url}: {e}")
+        logging.error(f"HTTP error for {url}: {e}")
     except requests.exceptions.ConnectionError:
-        logging.error(f"Помилка з'єднання з мережею при спробі відкрити {url}")
+        logging.error(f"Network connection error while attempting to open {url}")
     except requests.exceptions.Timeout:
-        logging.error(f"Таймаут (10 сек) при завантаженні {url}")
+        logging.error(f"Timeout (10 s) on loading {url}")
     except Exception as e:
-        logging.error(f"Непередбачена помилка: {e}", exc_info=True)
+        logging.error(f"Unpredictable error: {e}", exc_info=True)
         
     return None, None
 
-#функція для витягування ід з посилання на оголошення
+
 def extract_advertisement_id(url: str) -> str:
 
     """
-    Витягує унікальний ID оголошення з URL.
+    Extracts a unique advertisement ID from the URL.
     
     Args:
-        url (str): Посилання на оголошення.
+        url (str): The advertisement URL.
     
     Returns:
-        str: ID оголошення або None, якщо не знайдено.
+        str: The advertisement ID, or None if not found.
     """
-
+ 
     if not isinstance(url, str):
-        logging.error(f"Критична помилка типу: очікувався str, отримано {type(url)} (значення: {url})",exc_info=True)
+        logging.error(f"TypeError: expected str, received {type(url)} (value: {url})", exc_info=True)
         return None
 
     try:
@@ -91,134 +99,142 @@ def extract_advertisement_id(url: str) -> str:
         if match:
             return match.group(1)
         
-        logging.warning(f"ID не знайдено у посиланні: {url}")
+        logging.warning(f"ID not found in link: {url}")
         return None
 
     except Exception as e:
-        logging.error(f"Непередбачена помилка при регулярному виразі: {e}",exc_info=True)
+        logging.error(f"Unexpected error: {e}", exc_info=True)
         return None
 
-#функція для парсингу сторінки оголошень OLX 
-def parse_and_save(html: str, selectors: dict) -> list[LaptopItem]:
+
+def parse_catalog(html: str, selectors: dict) -> list[dict]:
 
     """
-    Парсить HTML сторінку каталогу і створює список об'єктів LaptopItem.
+    Parses a catalog HTML page and creates a list of LaptopItem objects.
+
+    Args:
+        html (str): The HTML content of the catalog page.
+        selectors (dict): Selectors from config.json for parsing elements.
+    
+    Returns:
+        list[dict]: A list containing basic info (id, title, link, price, etc.).
     """
 
-    items_list = []
+    ads_list = []
 
     try:
         soup = BeautifulSoup(html, 'html.parser')
         cards = soup.find_all('div', attrs=selectors.get("ad_card",{}))
         
         if not cards:
-            logging.warning("На сторінці не знайдено жодної картки товару.")
+            logging.warning("No product cards found on the page.")
             return []
         
     except Exception as e:
-        logging.error(f"Критична помилка при ініціалізації BeautifulSoup: {e}", exc_info=True)
+        logging.error(f"BeautifulSoup initialization error: {e}", exc_info=True)
         return []
 
     for card in cards:
         try:
 
-            #Витягуємо посилання на товар
             link_tag = card.find("a")
             if not link_tag:
                 continue
             
-            link = "https://www.olx.pl" + link_tag.get('href', '')
+            ad_link = "https://www.olx.pl" + link_tag.get('href', '') 
                 
-            #Отримуємо ід товару з посилання 
-            id = extract_advertisement_id(link)
+
+            ad_id = extract_advertisement_id(ad_link)
             
-            #Витягуємо заголовок об'яви і чистимо її від зайвих символів
+
             title_tag = card.find('h4')
 
             if not title_tag:
-                logging.warning(f"Не знайдено заголовок для картки {link}")
-                title = "Без назви"
+                logging.warning(f"Title not found for product card {ad_link}")
+                ad_title = "Untitled"
             else:    
-                title = title_tag.get_text(strip=True) 
+                ad_title = title_tag.get_text(separator=" ", strip=True) 
 
-            
 
             price_tag = card.find('p', attrs=selectors.get('price',{}))
             if not price_tag:
-                logging.warning(f"Не знайдено ціни для товару {link}")
-                price = 0
+                logging.warning(f"Not found price for product card {ad_link}")
+                ad_price = 0
             else:    
-                price = price_tag.get_text(strip=True) 
+                ad_price = price_tag.get_text(strip=True) 
 
-            laptop = LaptopItem(id=id, offer_title=title,link=link,price=price)
 
-            items_list.append(laptop)
-            
-        except AttributeError as e:
-            logging.warning(f"Пропущено картку через відсутність атрибута: {e}")
-            continue
+            ad_card = LaptopItem(id=ad_id, offer_title=ad_title, link=ad_link, price=ad_price)
+
+            ads_list.append(ad_card.to_dict())
 
         except Exception as e:
-            logging.error(f"Непередбачена помилка при обробці картки: {e}", exc_info=True)
+            logging.error(f"Unexpected error while processing ad card: {e}", exc_info=True)
     
-    return items_list
+    return ads_list
 
-#функція отримання цільових оголошень з OLX
-def target_scrap_OLX(url: str, headers: list, targets: list, selectors: dict) -> pd.DataFrame:
+
+def target_scrap(url: str, search_queries: list, headers: list, selectors: dict) -> pd.DataFrame:
 
     """
-    Основна функція сканування. Проходить по сторінках оголошень для заданих моделей.
+    Main scanning function. Processes all pages for the given search queries.
     
     Args:
-        targets (list): Список моделей (або одна модель у списку) для пошуку.
+        url (str): Base search URL.
+        search_queries (list): List of product models to search for.
+        headers (list): List of User-Agent strings.
+        selectors (dict): Dictionary of HTML selectors from config.json.
+    
+    Returns:
+        pd.DataFrame: A DataFrame containing all unique found advertisements.
     """
 
-    all_laptops = []
-    laptops_df = pd.DataFrame()
+    all_advert_cards = []
+    advert_cards_df = pd.DataFrame()
 
-    for model in targets:
+    for target in search_queries:
 
-        logging.info(f"Почався пошук моделі: {model}.")
+        logging.info(f"Start searchening for: {target}.")
 
         for i in range(1,26):
             try:
-                link = url + f"{model.replace(' ', '%20')}/?page={i}"
+                encoded_target = quote(target)
+                link = url + f"{encoded_target}/?page={i}"
 
                 html, res_link = fetch_html(link, headers)
 
                 if html is None:
-                    logging.warning(f"Пропущено сторінку {i} для {model} через помилку завантаження.")
+                    logging.warning(f"Skipping page {i} for {target} due to loading error.")
                     continue
                 
-                data = parse_and_save(html, selectors)
-                if not data or ((res_link != link) and i!=1):
-                    logging.info(f"Досягнуто кінець списку для {model} на сторінці {i}.")
+                adverts_cards = parse_catalog(html, selectors)
+                if not adverts_cards or ((res_link != link) and i!=1):
+                    logging.info(f"Reached the end of listings for '{target}' at page {i}.")
                     break
                 
                 else:
-                    all_laptops.extend(data)
-                    logging.info(f"Сторінка {i} ({model}): додано {len(data)} оголошень.")
+                    all_advert_cards.extend(adverts_cards)
+                    logging.info(f"Page {i} ({target}): added {len(adverts_cards)} ads.")
 
             except Exception as e:
-                logging.warning(f"Помилка при зчитуванні сторінки {i} для товара {model}")
+                logging.warning(f"{type(e).__name__}: {e} reading page {i} for target {target}")
 
-    models_text = ", ".join(targets)
+    text_queries = ", ".join(search_queries)
 
-    logging.info(f"Пошук моделей {models_text} завершено. Всього знайдено: {len(all_laptops)}")
+    logging.info(f"Search for {text_queries} finished. Total found: {len(all_advert_cards)}")
 
     try:
-        if not all_laptops:
-            logging.warning(f"Жодної з моделей {models_text} не було знайдено.")
+        if not all_advert_cards:
+            logging.warning("No advertisements were found for the given queries.")
             return pd.DataFrame()
         
-        laptops_df = pd.DataFrame(all_laptops)
-        laptops_df = laptops_df.drop_duplicates(subset=['id'])
+        advert_cards_df = pd.DataFrame(all_advert_cards)
+        advert_cards_df.drop_duplicates(subset=['id'], inplace=True)
     
     except Exception as e:
-        logging.error(f"Критична помилка при створенні DataFrame: {e}", exc_info=True)
+        logging.error(f"Critical error creating DataFrame {type(e).__name__}: {e}", exc_info=True)
 
-    return laptops_df
-
+    return advert_cards_df
 
 
 #функція для категоризації товарів по цільовим назвам
@@ -255,6 +271,7 @@ def get_category(text: str, target: list) -> str:
     except Exception as e:
         logging.error(f"Помилка при класифікації '{text}': {e}")
         return "unKnown"
+    
 
 #функція перевірки тексту на наявність слів з чорного списку видає на виход True або False
 def is_spam(text: str, black_list: list) ->  bool:
@@ -287,6 +304,7 @@ def is_spam(text: str, black_list: list) ->  bool:
     except Exception as e:
         logging.error(f"Помилка при перевірці на спам '{text}': {e}")
         return False
+
 
 #функція для очистки ціни від валюти
 def clean_price(price: str) -> int:
@@ -444,7 +462,7 @@ def get_details(links: list, headers: list, target_models: list, selectors: dict
 
     items_details = [] 
         
-    with ThreadPoolExecutor(max_workers=6) as executor:
+    with ThreadPoolExecutor(max_workers=10) as executor:
         items_details = list(executor.map(
         fetch_and_parse_advert, 
         links, 
@@ -485,12 +503,12 @@ def run_scraper():
         target_models = [[model.lower()] for model in models]
         black_list = [bl.lower() for bl in blacklist]
 
-        with ThreadPoolExecutor(max_workers=6) as executor:
+        with ThreadPoolExecutor(max_workers=10) as executor:
             results_list = list(executor.map(
-                target_scrap_OLX,
-                repeat(site_url),        
-                repeat(headers), 
-                target_models, 
+                target_scrap,
+                repeat(site_url),
+                target_models,        
+                repeat(headers),  
                 repeat(selectors)))
         
         if results_list:
@@ -507,7 +525,7 @@ def run_scraper():
 
         links = list(clean_data['link'])
 
-        logging.info(f"Отримуємо деталі з кожного оголошення.")
+        logging.info("Отримуємо деталі з кожного оголошення.")
         details_df = get_details(links, headers, target_models, selectors)
 
         clean_data.drop_duplicates(subset=['id'], keep='first', inplace=True)
@@ -525,7 +543,7 @@ def run_scraper():
         laptops = clean_data
 
         if laptops.empty:
-            logging.error(f"При спробі отримати деталі вивникла помилка.",exc_info=True)
+            logging.error("При спробі отримати деталі вивникла помилка.",exc_info=True)
             laptops.to_csv(path_to_save, index=False)
             return None
 
