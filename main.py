@@ -11,13 +11,14 @@ from LaptopBase import LaptopBase
 
 
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
+    level=logging.WARNING,
+    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
     handlers=[
-        logging.FileHandler("bot.log", encoding='utf-8'), 
-        logging.StreamHandler(sys.stdout)                 
-    ]
+        logging.FileHandler("bot.log", encoding="utf-8"),
+        logging.StreamHandler(sys.stdout),
+    ],
 )
+
 
 async def scheduled_scraping(laptops: LaptopBase, config: ConfigManager, bot: Bot):
     """Фонова задача для регулярного сканування."""
@@ -25,10 +26,10 @@ async def scheduled_scraping(laptops: LaptopBase, config: ConfigManager, bot: Bo
 
     while True:
         try:
-            interval = config.data.get('check_interval', 30)
-            
+            interval = config.data.get("check_interval", 30)
+
             logging.info("Початок автоматичного сканування...")
-            
+
             success = await asyncio.to_thread(run_scraper)
 
             if success:
@@ -36,47 +37,50 @@ async def scheduled_scraping(laptops: LaptopBase, config: ConfigManager, bot: Bo
                 await asyncio.to_thread(find_hot_deals)
 
                 laptops.update()
-                
-                if not laptops.df.empty and 'is_new' in laptops.df.columns:
-                    laptops.df = laptops.df.sort_values(by='is_new', ascending=False)
+
+                if not laptops.df.empty and "is_new" in laptops.df.columns:
+                    laptops.df = laptops.df.sort_values(by="is_new", ascending=False)
                     laptops.df.reset_index(drop=True, inplace=True)
                     logging.info("Дані відсортовані: нові оголошення вгорі.")
 
-                logging.info(f"Серед них нових: {len(laptops.df[laptops.df['is_new']==True])}!")
-                
+                logging.info(
+                    f"Серед них нових: {len(laptops.df[laptops.df['is_new']])}!"
+                )
+
                 await notify_users_new_deals(bot, config, laptops)
             else:
-                logging.warning("Скрапінг завершився невдачею або не знайшов оголошень.")
+                logging.warning(
+                    "Скрапінг завершився невдачею або не знайшов оголошень."
+                )
 
         except Exception as e:
             logging.error(f"Критична помилка в планувальнику: {e}", exc_info=True)
-            await asyncio.sleep(60) 
+            await asyncio.sleep(60)
             continue
 
-        logging.info(f" Спимо {interval} хвилин до наступного пошуку.")
+        logging.info(f"Спимо {interval} хвилин до наступного пошуку.")
         await asyncio.sleep(interval * 60)
-
 
 
 async def main():
     try:
         config = ConfigManager()
 
-        os.makedirs('data', exist_ok=True)
-        
-        token = config.data.get('token')
+        os.makedirs("data", exist_ok=True)
+
+        token = config.data.get("token")
         if not token:
             logging.critical("ТОКЕН НЕ ЗНАЙДЕНО! Перевірте config.json")
             return
 
         bot = Bot(token=token)
         laptops = LaptopBase("data/hot_deals.csv")
-        
+
         app_data = {"laptops": laptops, "config": config}
 
-        asyncio.create_task(scheduled_scraping(laptops, config, bot))
-
-        logging.info(f"Система запущена! Бот { (await bot.get_me()).username } чекає на команди...")
+        logging.info(
+            f"Система запущена! Бот {(await bot.get_me()).username} чекає на команди..."
+        )
 
         await bot.delete_webhook(drop_pending_updates=True)
         await dp.start_polling(bot, **app_data)
@@ -84,9 +88,10 @@ async def main():
     except Exception as e:
         logging.critical(f"Фатальна помилка при старті: {e}", exc_info=True)
     finally:
-        if 'bot' in locals():
+        if "bot" in locals():
             await bot.session.close()
         logging.info("Бот зупинений.")
+
 
 if __name__ == "__main__":
     try:
