@@ -14,18 +14,12 @@ from LaptopBase import LaptopItem
 from itertools import repeat
 
 
-config = ConfigManager()
 
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     datefmt='%H:%M:%S'
 )
-
-selectors = config.data["selectors"]
-target_models = list(map(lambda x: x.lower(),config.data['models']))
-black_list = list(map(lambda x: x.lower(), config.data['blacklist']))
-headers = [str(Headers()) for x in range(15)]
 
 
 def get_header(headers: list) -> dict: 
@@ -76,102 +70,20 @@ def fetch_html(url: str, headers: list) -> tuple[str, str]:
         
     return None, None
 
-
-def extract_advertisement_id(url: str) -> str:
-
+OLX_ID_REGEX = re.compile(r'-ID([a-zA-Z0-9]+)\.html')
+def parse_catalog(html: str, reg_patern: re.Pattern) -> list[dict]:
     """
-    Extracts a unique advertisement ID from the URL.
-    
-    Args:
-        url (str): The advertisement URL.
-    
-    Returns:
-        str: The advertisement ID, or None if not found.
-    """
- 
-    if not isinstance(url, str):
-        logging.error(f"TypeError: expected str, received {type(url)} (value: {url})", exc_info=True)
-        return None
-
-    try:
-
-        match = re.search(r'-ID([a-zA-Z0-9]+)', url)
-        if match:
-            return match.group(1)
-        
-        logging.warning(f"ID not found in link: {url}")
-        return None
-
-    except Exception as e:
-        logging.error(f"Unexpected error: {e}", exc_info=True)
-        return None
-
-
-def parse_catalog(html: str, selectors: dict) -> list[dict]:
-
-    """
-    Parses a catalog HTML page and creates a list of LaptopItem objects.
+    Parses a catalog HTML page and extracts a list of unique advertisement IDs.
 
     Args:
         html (str): The HTML content of the catalog page.
-        selectors (dict): Selectors from config.json for parsing elements.
+        reg_patern (re.Pattern): Compiled regex pattern to match advertisement IDs.
     
     Returns:
-        list[dict]: A list containing basic info (id, title, link, price, etc.).
+        list[str]: A list containing unique IDs of all advertisements.
     """
 
-    ads_list = []
-
-    try:
-        soup = BeautifulSoup(html, 'html.parser')
-        cards = soup.find_all('div', attrs=selectors.get("ad_card",{}))
-        
-        if not cards:
-            logging.warning("No product cards found on the page.")
-            return []
-        
-    except Exception as e:
-        logging.error(f"BeautifulSoup initialization error: {e}", exc_info=True)
-        return []
-
-    for card in cards:
-        try:
-
-            link_tag = card.find("a")
-            if not link_tag:
-                continue
-            
-            ad_link = "https://www.olx.pl" + link_tag.get('href', '') 
-                
-
-            ad_id = extract_advertisement_id(ad_link)
-            
-
-            title_tag = card.find('h4')
-
-            if not title_tag:
-                logging.warning(f"Title not found for product card {ad_link}")
-                ad_title = "Untitled"
-            else:    
-                ad_title = title_tag.get_text(separator=" ", strip=True) 
-
-
-            price_tag = card.find('p', attrs=selectors.get('price',{}))
-            if not price_tag:
-                logging.warning(f"Not found price for product card {ad_link}")
-                ad_price = 0
-            else:    
-                ad_price = price_tag.get_text(strip=True) 
-
-
-            ad_card = LaptopItem(id=ad_id, offer_title=ad_title, link=ad_link, price=ad_price)
-
-            ads_list.append(ad_card.to_dict())
-
-        except Exception as e:
-            logging.error(f"Unexpected error while processing ad card: {e}", exc_info=True)
-    
-    return ads_list
+    return list(set(reg_patern.findall(html)))
 
 
 def target_scrap(url: str, search_queries: list, headers: list, selectors: dict) -> pd.DataFrame:
@@ -558,5 +470,12 @@ def run_scraper():
 
 
 if __name__ == "__main__":
+
+    config = ConfigManager()
+    selectors = config.data["selectors"]
+    target_models = list(map(lambda x: x.lower(),config.data['models']))
+    black_list = list(map(lambda x: x.lower(), config.data['blacklist']))
+    headers = [str(Headers()) for x in range(15)]
+
     run_scraper()
     pass
