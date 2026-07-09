@@ -1,6 +1,6 @@
-aiogram>=3.0.0
-requests
-beautifulsoup4
-pandas
-fake-headers
-rapidfuzz
+aiogram==3.29.1
+requests==2.34.2
+beautifulsoup4==4.15.0
+pandas==3.0.3
+fake-headers==1.0.2
+rapidfuzz==3.14.5
