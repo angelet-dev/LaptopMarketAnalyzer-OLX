@@ -1,7 +1,6 @@
 import json
 import logging
 
-
 def dump_api_response(response: str, path: str) -> bool:
     """
     Dump in JSONL file raw data from API response.
@@ -47,3 +46,14 @@ def dump_api_response(response: str, path: str) -> bool:
                 logging.warning(f"Unexpected key found in response: {key}")
 
     return True
+
+def update_search_param(search_parameters: list, key: str, value: str):
+    """
+    Update search parameters in payload.
+    """
+    for param in search_parameters:
+        if param.get("key") == key:
+            param["value"] = str(value)
+            return
+
+    search_parameters.append({"key": key, "value": str(value)})
