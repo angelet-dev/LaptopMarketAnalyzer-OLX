@@ -184,20 +184,21 @@ async def get_total_elements(
 
 
 async def api_query_catalog(
-    s_args: dict, api_url: str, payload: dict, **kwargs
-) -> bool:
+    s_args: dict, semaphore: asyncio.Semaphore, api_url: str, payload: dict, **kwargs
+) -> bool | None:
     """
     Get all ads and dump it from OLX API query for target of search.
     """
 
     try:
-        update_search_param(
-            payload["variables"]["searchParameters"], "query", s_args.get("target", "")
-        )
+        target = s_args.get("target", "")
+
+        if not target:
+            return False
+
+        update_search_param(payload["variables"]["searchParameters"], "query", target)
 
         async with httpx.AsyncClient() as client:
-            semaphore = asyncio.Semaphore(5)
-
             total_elements = await get_total_elements(
                 client, semaphore, api_url, payload, **kwargs
             )
@@ -227,7 +228,9 @@ async def api_query_catalog(
 
             for response in processed_tasks:
                 if isinstance(response, str):
-                    dump_api_response(response, "data/raw/2.jsonl")
+                    dump_api_response(
+                        response, s_args.get("path", f"data/raw/{target}.jsonl")
+                    )
                 else:
                     logging.error(f"Task failed with error: {response}")
 
@@ -236,6 +239,55 @@ async def api_query_catalog(
     except Exception as e:
         logging.error(f"Unexpected error {type(e).__name__}: {e}", exc_info=True)
         return False
+
+
+async def api_query_targets(
+    api_url: str, payload: dict, args: dict, timeout: int, headers: dict
+) -> None:
+    """
+    Distribute targets into async tasks and manage the execution of API queries.
+    """
+
+    targets = args.get("targets", [])
+
+    if not targets:
+        logging.warning("API got empty or incorrect list of targets.")
+        return None
+
+    semaphore = asyncio.Semaphore(5)
+
+    tasks = []
+
+    for i, target in enumerate(targets):
+        task_payload = copy.deepcopy(payload)
+        task_s_args = {
+            "limit": args.get("limit", 40),
+            "target": target,
+            "path": f"data/raw/{target}_{i}.jsonl",
+        }
+
+        tasks.append(
+            asyncio.create_task(
+                api_query_catalog(
+                    task_s_args,
+                    semaphore,
+                    api_url,
+                    task_payload,
+                    timeout=timeout,
+                    headers=headers,
+                )
+            )
+        )
+
+    processed_tasks = await asyncio.gather(*tasks, return_exceptions=True)
+
+    for i, task_res in enumerate(processed_tasks):
+        if isinstance(task_res, Exception):
+            logging.error(f"Error ({type(task_res).__name__}): {task_res}")
+        elif not task_res:
+            logging.warning(f"API query failed to process target {targets[i]}.")
+        else:
+            logging.info(f"Successfully fetched data for target {targets[i]}!")
 
 
 if __name__ == "__main__":
@@ -250,9 +302,18 @@ if __name__ == "__main__":
     logging.getLogger("httpcore").setLevel(logging.WARNING)
 
     TIME_OUT = 10
-    target = '"Apple MacBook Pro 13"'
-    client = httpx.AsyncClient()
-    s_args = {"limit": 40, "target": f"{target}"}
-    asyncio.run(
-        api_query_catalog(s_args, url, payload, headers=headers, timeout=TIME_OUT)
-    )
+    targets = [
+    'Apple MacBook Air M2',
+    'Lenovo ThinkPad X1 Carbon',
+    'Asus ROG Zephyrus G14',
+    'Dell XPS 13',
+    'Lenovo Legion 5',
+    'HP Victus 15',
+    'Asus TUF Gaming F15',
+    'Acer Nitro 5',
+    'Apple MacBook Pro M2',
+    'Samsung Galaxy Book3',
+    ]
+    args = {"limit": 40, "targets": targets}
+
+    asyncio.run(api_query_targets(url, payload, args, TIME_OUT, headers))
