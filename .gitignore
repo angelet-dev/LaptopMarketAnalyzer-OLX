@@ -13,6 +13,7 @@ env/
 *.log
 *.sqlite
 
+data/*/*.csv
 data/*.csv
 !data/.gitkeep
 
